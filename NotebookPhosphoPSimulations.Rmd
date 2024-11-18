@@ -1,0 +1,695 @@
+---
+title: "PhosphoFit, plot model simulations from best fits"
+output: html_notebook
+---
+
+Preamble stuff
+```{r setup}
+
+library(tidyr)
+library(ggplot2)
+library(plyr)
+library(ggpubr)
+library(deSolve)
+
+plotOutput <- "Y" #Set to Y to save figures
+rowres <- 10
+
+# Select model name
+###################
+ModelName <- 'A0' #set to model A0, A01 - A10
+
+# Select inhibitor effect. none or gsk
+######################################
+inhibitorName <- 'none' #'none' or 'gsk' 
+gskInhibRate <- 1 # 1 (no inhibitor) or 0.1
+inhibitorName <- 'gsk' #'none' or 'gsk' 
+gskInhibRate <- 0.1 # 1 (no inhibitor) or 0.1
+
+#Parameters for stimulus used in all fitting
+############################################
+#These are for the original stimulus
+pa1 <- 0.001 #pa1 and pa2 determine the shape of the stim function
+pa3 <- 1
+a2 <- 0.0002
+a4 <- 0.02
+dsname <- 'Original' 
+
+#Uncomment these to run simulations with varying stimulus
+#pa1 <- 0.001
+#pa3 <- 0.5 #magnitude 50% reduced
+#dsname <- 'StimReduced' 
+#pa1 <- 0.03 
+#pa3 <- 0.5 #reduced magnitude with peak
+#dsname <- 'StimReducedWithPeak' 
+#pa1 <- 0.03 
+#pa3 <- 1 #introduce peak
+#dsname <- 'StimWithPeak' 
+
+```
+
+
+Load up outputs from fitting - to phospho data + IP3
+```{r}
+
+df.posterior <-  read.csv(
+    paste('parameterSets/Posterior',ModelName,'.csv',sep=''),
+    stringsAsFactors = FALSE,
+    header = TRUE
+)
+
+if (ModelName == "A0" | ModelName == "A01" | ModelName == "A02" | ModelName == "A06" | ModelName == "A07" | ModelName == "A08") {
+    df.posterior$t6 <- 0.0001
+    df.posterior$t6m <- 0.0001
+    df.posterior$s4 <- 0.0001
+    df.posterior$s4m <- 0.0001
+    df.posterior$s5 <- 0.0001
+    df.posterior$s5m <- 0.0001
+    df.posterior$r6 <- 0.0001
+    df.posterior$t2m <- 0.0001
+}
+
+if (ModelName == "A03") {
+    df.posterior$s4 <- 0.0001
+    df.posterior$s4m <- 0.0001
+    df.posterior$s5 <- 0.0001
+    df.posterior$s5m <- 0.0001
+    df.posterior$r6 <- 0.0001
+    df.posterior$t2m <- 0.0001
+}
+
+if (ModelName == "A04") {
+    df.posterior$t6 <- 0.0001
+    df.posterior$t6m <- 0.0001
+    df.posterior$s5 <- 0.0001
+    df.posterior$s5m <- 0.0001
+    df.posterior$r6 <- 0.0001
+    df.posterior$t2m <- 0.0001
+}
+
+if (ModelName == "A05") {
+    df.posterior$t6 <- 0.0001
+    df.posterior$t6m <- 0.0001
+    df.posterior$s4 <- 0.0001
+    df.posterior$s4m <- 0.0001
+    df.posterior$r6 <- 0.0001
+    df.posterior$t2m <- 0.0001
+}
+
+if (ModelName == "A09") {
+    df.posterior$t6 <- 0.0001
+    df.posterior$t6m <- 0.0001
+    df.posterior$s4 <- 0.0001
+    df.posterior$s4m <- 0.0001
+    df.posterior$s5 <- 0.0001
+    df.posterior$s5m <- 0.0001
+    df.posterior$t2m <- 0.0001
+}
+
+if (ModelName == "A10") {
+    df.posterior$t6 <- 0.0001
+    df.posterior$t6m <- 0.0001
+    df.posterior$s4 <- 0.0001
+    df.posterior$s4m <- 0.0001
+    df.posterior$s5 <- 0.0001
+    df.posterior$s5m <- 0.0001
+    df.posterior$r6 <- 0.0001
+}
+
+df.posterior <- na.omit(df.posterior)
+
+```
+
+
+set up parameters and initial conditions
+```{r}
+
+PI0 <- 2700000
+PI40 <- 640000
+PIP20 <- 310000
+PI340 <- 5200
+PIP30 <- 1900
+
+IP30 <- 0 
+Ip0 <- 100000000
+
+ini <- c(PI = PI0,
+          PI4 = PI40,
+          PIP2 = PIP20,
+          PIP3 = PIP30,
+          PI34 = PI340,
+          Pp = 25000,
+          IP3 = IP30,
+          IP1 = 0,
+          Ip = Ip0
+          )
+
+if (ModelName == 'A03') {
+ini <- c(PI = 0.5*PI0,
+          PI4 = PI40,
+          PIP2 = PIP20,
+          PIP3 = PIP30,
+          PI34 = PI340,
+          Pp = 25000,
+          IP3 = IP30,
+          IP1 = 0,
+          Ip = Ip0,
+          Pb = 0.5*PI0
+          )
+}
+if (ModelName == 'A04') {
+ini <- c(PI = PI0,
+          PI4 = PI40,
+          PIP2 = PIP20,
+          PIP3 = PIP30,
+          PI34 = PI340,
+          Pp = 25000,
+          IP3 = IP30,
+          IP1 = 0,
+          Ip = Ip0,
+          Pb = 0
+          )
+}
+if (ModelName == 'A05') {
+ini <- c(PI = PI0,
+          PI4 = PI40,
+          PIP2 = 0.5*PIP20,
+          PIP3 = PIP30,
+          PI34 = PI340,
+          Pp = 25000,
+          IP3 = IP30,
+          IP1 = 0,
+          Ip = Ip0,
+          Pb = 0.5*PIP20
+          )
+
+}
+
+parameters <- c(r1 <- gskInhibRate*df.posterior$r1[1],
+                  r1m <- df.posterior$r1m[1],
+                  r2 <- df.posterior$r2[1],
+                  r2m <- df.posterior$r2m[1],
+                  s2m <- df.posterior$s2m[1],
+                  r3 <- df.posterior$r3[1],
+                  r4 <- df.posterior$r4[1],
+                  t1 <- df.posterior$t1[1],
+                  t2 <- df.posterior$t2[1],
+                  t3 <- df.posterior$t3[1],
+                  t3m <- df.posterior$t3m[1],
+                  t4 <- df.posterior$t4[1],
+                  t4m <- df.posterior$t4m[1],
+                  t5 <- df.posterior$t5[1],
+                  t5m <- df.posterior$t5m[1],
+                  s1 <- df.posterior$s1[1],
+                  s2 <- df.posterior$s2[1],
+                  s2m <- df.posterior$s2m[1],
+                  t6 <- df.posterior$t6[1],
+                  t6m <- df.posterior$t6m[1],
+                  s4 <- df.posterior$s4[1],
+                  s4m <- df.posterior$s4m[1],
+                  s5 <- df.posterior$s5[1],
+                  s5m <- df.posterior$s5m[1],
+                  r6 <- df.posterior$r6[1],
+                  t2m <- df.posterior$t2m[1],
+                  a1 <- pa1,
+                  a3 <- pa3
+                  )
+  
+   print(parameters)
+
+end <- 600
+times <- seq(from = 0, to = end, by = 0.01)
+
+```
+
+Set up model
+```{r}
+
+if (ModelName == 'A0') {
+  modelP <- function (t, ini, parmameters) {
+    with(as.list(c(ini, parameters)), {
+      
+      stim <- (a1*t*exp(-a2*t^2) + a3*tanh(a4*t))
+      
+      # equations
+      dPI=t2*Ip - r1*PI + r1m*PI4 - t3*PI + t3m*Pp
+      dPI4=r1*PI - r1m*PI4 - r2*PI4 + r2m*PIP2
+      dPIP2=r2*PI4 - r2m*PIP2 - s2*stim*PIP2 + s2m*PIP3 - s1*stim*PIP2 + t5*Pp - t5m*PIP2
+      dPIP3=s2*stim*PIP2 - s2m*PIP3 - r4*PIP3
+      dPI34=t4*Pp - t4m*PI34 + r4*PIP3
+      dPp=t3*PI - t3m*Pp - t5*Pp + t5m*PIP2 - t4*Pp + t4m*PI34
+      dIP3=s1*stim*PIP2 - t1*IP3
+      dIP1=t1*IP3 - r3*IP1
+      dIp=r3*IP1 - t2*Ip
+      
+      # return
+      list(c(dPI, dPI4, dPIP2, dPIP3, dPI34, dPp, dIP3, dIP1, dIp))
+    })
+  }
+}
+
+#The role of SHIP1/2 in promoting the conversion of PIP3 to PI34P2. stimulus promotes r4. 0 new parameter.
+if (ModelName == 'A01') {
+  modelP <- function (t, ini, parmameters) {
+    with(as.list(c(ini, parameters)), {
+      
+      stim <- (a1*t*exp(-a2*t^2) + a3*tanh(a4*t))
+      
+      # equations
+      dPI=t2*Ip - r1*PI + r1m*PI4 - t3*PI + t3m*Pp
+      dPI4=r1*PI - r1m*PI4 - r2*PI4 + r2m*PIP2
+      dPIP2=r2*PI4 - r2m*PIP2 - s2*stim*PIP2 + s2m*PIP3 - s1*stim*PIP2 + t5*Pp - t5m*PIP2
+      dPIP3=s2*stim*PIP2 - s2m*PIP3 - r4*stim*PIP3
+      dPI34=t4*Pp - t4m*PI34 + r4*stim*PIP3
+      dPp=t3*PI - t3m*Pp - t5*Pp + t5m*PIP2 - t4*Pp + t4m*PI34
+      dIP3=s1*stim*PIP2 - t1*IP3
+      dIP1=t1*IP3 - r3*IP1
+      dIp=r3*IP1 - t2*Ip
+      
+      # return
+      list(c(dPI, dPI4, dPIP2, dPIP3, dPI34, dPp, dIP3, dIP1, dIp))
+    })
+  }
+}
+
+#Regulation of PI4P by IP3 (r2), no new parameters or equations
+if (ModelName == 'A02') {
+  modelP <- function (t, ini, parmameters) {
+    with(as.list(c(ini, parameters)), {
+      
+      stim <- (a1*t*exp(-a2*t^2) + a3*tanh(a4*t))
+      
+      # equations
+      dPI=t2*Ip - r1*PI + r1m*PI4 - t3*PI + t3m*Pp
+      dPI4=r1*PI - r1m*PI4 - r2*PI4*IP3 + r2m*PIP2
+      dPIP2=r2*PI4*IP3 - r2m*PIP2 - s2*stim*PIP2 + s2m*PIP3 - s1*stim*PIP2 + t5*Pp - t5m*PIP2
+      dPIP3=s2*stim*PIP2 - s2m*PIP3 - r4*PIP3
+      dPI34=t4*Pp - t4m*PI34 + r4*PIP3
+      dPp=t3*PI - t3m*Pp - t5*Pp + t5m*PIP2 - t4*Pp + t4m*PI34
+      dIP3=s1*stim*PIP2 - t1*IP3
+      dIP1=t1*IP3 - r3*IP1
+      dIp=r3*IP1 - t2*Ip
+      
+      # return
+      list(c(dPI, dPI4, dPIP2, dPIP3, dPI34, dPp, dIP3, dIP1, dIp))
+    })
+  }
+}
+
+#The spatial distribution PtdIns (PI). 1 new equation, 2 new parameters
+if (ModelName == 'A03') {
+  modelP <- function (t, ini, parmameters) {
+    with(as.list(c(ini, parameters)), {
+      
+      stim <- (a1*t*exp(-a2*t^2) + a3*tanh(a4*t))
+      
+      # equations
+      dPI=t2*Pb - r1*PI + r1m*PI4 - t3*PI + t3m*Pp
+      dPI4=r1*PI - r1m*PI4 - r2*PI4 + r2m*PIP2
+      dPIP2=r2*PI4 - r2m*PIP2 - s2*stim*PIP2 + s2m*PIP3 - s1*stim*PIP2 + t5*Pp - t5m*PIP2
+      dPIP3=s2*stim*PIP2 - s2m*PIP3 - r4*PIP3
+      dPI34=t4*Pp - t4m*PI34 + r4*PIP3
+      dPp=t3*PI - t3m*Pp - t5*Pp + t5m*PIP2 - t4*Pp + t4m*PI34
+      dIP3=s1*stim*PIP2 - t1*IP3
+      dIP1=t1*IP3 - r3*IP1
+      dIp=r3*IP1 - t6*Ip + t6m*Pb
+      dPb=t6*Ip - t6m*Pb - t2*Pb #PIc
+      # return
+      list(c(dPI, dPI4, dPIP2, dPIP3, dPI34, dPp, dIP3, dIP1, dIp, dPb))
+    })
+  }
+}
+
+#The stabilisation of PIP3 through PH binding domains. 1 new equation and 2 new parameters 
+if (ModelName == 'A04') {
+  modelP <- function (t, ini, parmameters) {
+    with(as.list(c(ini, parameters)), {
+      
+      stim <- (a1*t*exp(-a2*t^2) + a3*tanh(a4*t))
+      
+      # equations
+      dPI=t2*Ip - r1*PI + r1m*PI4 - t3*PI + t3m*Pp
+      dPI4=r1*PI - r1m*PI4 - r2*PI4 + r2m*PIP2
+      dPIP2=r2*PI4 - r2m*PIP2 - s2*stim*PIP2 + s2m*PIP3 - s1*stim*PIP2 + t5*Pp - t5m*PIP2
+      dPIP3=s2*stim*PIP2 - s2m*PIP3 - r4*PIP3 - s4*stim*PIP3 + t4m*Pb
+      dPI34=t4*Pp - t4m*PI34 + r4*PIP3
+      dPp=t3*PI - t3m*Pp - t5*Pp + t5m*PIP2 - t4*Pp + t4m*PI34
+      dIP3=s1*stim*PIP2 - t1*IP3
+      dIP1=t1*IP3 - r3*IP1
+      dIp=r3*IP1 - t2*Ip
+      dPb=s4*stim*PIP3 - t4m*Pb #PIP3b
+      
+      # return
+      list(c(dPI, dPI4, dPIP2, dPIP3, dPI34, dPp, dIP3, dIP1, dIp, dPb))
+    })
+  }
+}
+
+#The binding and sequestration of PtdIns(4,5)P2. 1 new equation, 2 new parameters (s5 and s5m).
+if (ModelName == 'A05') {
+  modelP <- function (t, ini, parmameters) {
+    with(as.list(c(ini, parameters)), {
+      
+      stim <- (a1*t*exp(-a2*t^2) + a3*tanh(a4*t))
+      
+      # equations
+      dPI=t2*Ip - r1*PI + r1m*PI4 - t3*PI + t3m*Pp
+      dPI4=r1*PI - r1m*PI4 - r2*PI4 + r2m*PIP2
+      dPIP2=r2*PI4 - r2m*PIP2 - s2*stim*PIP2 + s2m*PIP3 - s1*stim*PIP2 + t5*Pp - t5m*PIP2 - s5*PIP2 + s5m*stim*Pb
+      dPIP3=s2*stim*PIP2 - s2m*PIP3 - r4*PIP3
+      dPI34=t4*Pp - t4m*PI34 + r4*PIP3
+      dPp=t3*PI - t3m*Pp - t5*Pp + t5m*PIP2 - t4*Pp + t4m*PI34
+      dIP3=s1*stim*PIP2 - t1*IP3
+      dIP1=t1*IP3 - r3*IP1
+      dIp=r3*IP1 - t2*Ip
+      dPb=s5*PIP2 - s5m*stim*Pb #PIP3b
+      
+      # return
+      list(c(dPI, dPI4, dPIP2, dPIP3, dPI34, dPp, dIP3, dIP1, dIp, dPb))
+    })
+  }
+}
+
+#PI to PI4P kinase regulation (r1 by IP3). No new parameters or equations.
+if (ModelName == 'A06') {
+  modelP <- function (t, ini, parmameters) {
+    with(as.list(c(ini, parameters)), {
+      
+      stim <- (a1*t*exp(-a2*t^2) + a3*tanh(a4*t))
+      
+      # equations
+      dPI=t2*Ip - r1*IP3*PI + r1m*PI4 - t3*PI + t3m*Pp
+      dPI4=r1*IP3*PI - r1m*PI4 - r2*PI4 + r2m*PIP2
+      dPIP2=r2*PI4 - r2m*PIP2 - s2*stim*PIP2 + s2m*PIP3 - s1*stim*PIP2 + t5*Pp - t5m*PIP2
+      dPIP3=s2*stim*PIP2 - s2m*PIP3 - r4*PIP3
+      dPI34=t4*Pp - t4m*PI34 + r4*PIP3
+      dPp=t3*PI - t3m*Pp - t5*Pp + t5m*PIP2 - t4*Pp + t4m*PI34
+      dIP3=s1*stim*PIP2 - t1*IP3
+      dIP1=t1*IP3 - r3*IP1
+      dIp=r3*IP1 - t2*Ip
+      
+      # return
+      list(c(dPI, dPI4, dPIP2, dPIP3, dPI34, dPp, dIP3, dIP1, dIp))
+    })
+  }
+}
+
+#The ability of Osh proteins to promote dephosphorylate of PI4P. No new parameters or equations
+if (ModelName == 'A07') {
+  modelP <- function (t, ini, parmameters) {
+    with(as.list(c(ini, parameters)), {
+      
+      stim <- (a1*t*exp(-a2*t^2) + a3*tanh(a4*t))
+      
+      # equations
+      dPI=t2*Ip - r1*PI + r1m*PI4*PI4 - t3*PI + t3m*Pp
+      dPI4=r1*PI - r1m*PI4*PI4 - r2*PI4 + r2m*PIP2
+      dPIP2=r2*PI4 - r2m*PIP2 - s2*stim*PIP2 + s2m*PIP3 - s1*stim*PIP2 + t5*Pp - t5m*PIP2
+      dPIP3=s2*stim*PIP2 - s2m*PIP3 - r4*PIP3
+      dPI34=t4*Pp - t4m*PI34 + r4*PIP3
+      dPp=t3*PI - t3m*Pp - t5*Pp + t5m*PIP2 - t4*Pp + t4m*PI34
+      dIP3=s1*stim*PIP2 - t1*IP3
+      dIP1=t1*IP3 - r3*IP1
+      dIp=r3*IP1 - t2*Ip
+      
+      # return
+      list(c(dPI, dPI4, dPIP2, dPIP3, dPI34, dPp, dIP3, dIP1, dIp))
+    })
+  }
+}
+
+#The role of Ptdlns 4-kinase, an enzyme which phosphorylates PI3P to PI3. No new parameters or equations. PIP2 promotes t4. 
+if (ModelName == 'A08') {
+  modelP <- function (t, ini, parmameters) {
+    with(as.list(c(ini, parameters)), {
+      
+      stim <- (a1*t*exp(-a2*t^2) + a3*tanh(a4*t))
+      
+      # equations
+      dPI=t2*Ip - r1*PI + r1m*PI4 - t3*PI + t3m*Pp
+      dPI4=r1*PI - r1m*PI4 - r2*PI4 + r2m*PIP2
+      dPIP2=r2*PI4 - r2m*PIP2 - s2*stim*PIP2 + s2m*PIP3 - s1*stim*PIP2 + t5*Pp - t5m*PIP2
+      dPIP3=s2*stim*PIP2 - s2m*PIP3 - r4*PIP3
+      dPI34=t4*Pp*PIP2 - t4m*PI34 + r4*PIP3
+      dPp=t3*PI - t3m*Pp - t5*Pp + t5m*PIP2 - t4*Pp*PIP2 + t4m*PI34
+      dIP3=s1*stim*PIP2 - t1*IP3
+      dIP1=t1*IP3 - r3*IP1
+      dIp=r3*IP1 - t2*Ip
+      
+      # return
+      list(c(dPI, dPI4, dPIP2, dPIP3, dPI34, dPp, dIP3, dIP1, dIp))
+    })
+  }
+}
+
+#Inclusion of synthesis of PI(3,4)P2 from PI4P. 1 new parameter (r6) for new reaction (PI to PI34P).
+if (ModelName == 'A09') {
+  modelP <- function (t, ini, parmameters) {
+    with(as.list(c(ini, parameters)), {
+      
+      stim <- (a1*t*exp(-a2*t^2) + a3*tanh(a4*t))
+      
+      # equations
+      dPI=t2*Ip - r1*PI + r1m*PI4 - t3*PI + t3m*Pp - r6*PI
+      dPI4=r1*PI - r1m*PI4 - r2*PI4 + r2m*PIP2
+      dPIP2=r2*PI4 - r2m*PIP2 - s2*stim*PIP2 + s2m*PIP3 - s1*stim*PIP2 + t5*Pp - t5m*PIP2
+      dPIP3=s2*stim*PIP2 - s2m*PIP3 - r4*PIP3
+      dPI34=t4*Pp - t4m*PI34 + r4*PIP3 + r6*PI
+      dPp=t3*PI - t3m*Pp - t5*Pp + t5m*PIP2 - t4*Pp + t4m*PI34
+      dIP3=s1*stim*PIP2 - t1*IP3
+      dIP1=t1*IP3 - r3*IP1
+      dIp=r3*IP1 - t2*Ip
+      
+      # return
+      list(c(dPI, dPI4, dPIP2, dPIP3, dPI34, dPp, dIP3, dIP1, dIp))
+    })
+  }
+}
+
+#The influence of lysophosphatidylinositol. 1 new parameter for new reaction 
+if (ModelName == 'A10') {
+  modelP <- function (t, ini, parmameters) {
+    with(as.list(c(ini, parameters)), {
+      
+      stim <- (a1*t*exp(-a2*t^2) + a3*tanh(a4*t))
+      
+      # equations
+      dPI=t2*Ip - r1*PI + r1m*PI4 - t3*PI + t3m*Pp- t2m*IP3*PI
+      dPI4=r1*PI - r1m*PI4 - r2*PI4 + r2m*PIP2
+      dPIP2=r2*PI4 - r2m*PIP2 - s2*stim*PIP2 + s2m*PIP3 - s1*stim*PIP2 + t5*Pp - t5m*PIP2
+      dPIP3=s2*stim*PIP2 - s2m*PIP3 - r4*PIP3
+      dPI34=t4*Pp - t4m*PI34 + r4*PIP3
+      dPp=t3*PI - t3m*Pp - t5*Pp + t5m*PIP2 - t4*Pp + t4m*PI34
+      dIP3=s1*stim*PIP2 - t1*IP3
+      dIP1=t1*IP3 - r3*IP1
+      dIp=r3*IP1 - t2*Ip + t2m*IP3*PI
+      
+      # return
+      list(c(dPI, dPI4, dPIP2, dPIP3, dPI34, dPp, dIP3, dIP1, dIp))
+    })
+  }
+}
+
+```
+
+initial run of model
+```{r}
+
+out1 <- ode(y = ini, times = times, func = modelP, parms = parameters)
+
+```
+
+Run model twice more
+```{r}
+
+parameters <- c(r1 <- gskInhibRate*df.posterior$r1[2],
+                  r1m <- df.posterior$r1m[2],
+                  r2 <- df.posterior$r2[2],
+                  r2m <- df.posterior$r2m[2],
+                  s2m <- df.posterior$s2m[2],
+                  r3 <- df.posterior$r3[2],
+                  r4 <- df.posterior$r4[2],
+                  t1 <- df.posterior$t1[2],
+                  t2 <- df.posterior$t2[2],
+                  t3 <- df.posterior$t3[2],
+                  t3m <- df.posterior$t3m[2],
+                  t4 <- df.posterior$t4[2],
+                  t4m <- df.posterior$t4m[2],
+                  t5 <- df.posterior$t5[2],
+                  t5m <- df.posterior$t5m[2],
+                  s1 <- df.posterior$s1[2],
+                  s2 <- df.posterior$s2[2],
+                  s2m <- df.posterior$s2m[2],
+                  t6 <- df.posterior$t6[2],
+                  t6m <- df.posterior$t6m[2],
+                  s4 <- df.posterior$s4[2],
+                  s4m <- df.posterior$s4m[2],
+                  s5 <- df.posterior$s5[2],
+                  s5m <- df.posterior$s5m[2],
+                  r6 <- df.posterior$r6[2],
+                  t2m <- df.posterior$t2m[2],
+                  a1 <- pa1,
+                  a3 <- pa3
+                  )
+
+  out2 <- ode(y = ini, times = times, func = modelP, parms = parameters)
+
+parameters <- c(r1 <- gskInhibRate*df.posterior$r1[3],
+                  r1m <- df.posterior$r1m[3],
+                  r2 <- df.posterior$r2[3],
+                  r2m <- df.posterior$r2m[3],
+                  s2m <- df.posterior$s2m[3],
+                  r3 <- df.posterior$r3[3],
+                  r4 <- df.posterior$r4[3],
+                  t1 <- df.posterior$t1[3],
+                  t2 <- df.posterior$t2[3],
+                  t3 <- df.posterior$t3[3],
+                  t3m <- df.posterior$t3m[3],
+                  t4 <- df.posterior$t4[3],
+                  t4m <- df.posterior$t4m[3],
+                  t5 <- df.posterior$t5[3],
+                  t5m <- df.posterior$t5m[3],
+                  s1 <- df.posterior$s1[3],
+                  s2 <- df.posterior$s2[3],
+                  s2m <- df.posterior$s2m[3],
+                  t6 <- df.posterior$t6[3],
+                  t6m <- df.posterior$t6m[3],
+                  s4 <- df.posterior$s4[3],
+                  s4m <- df.posterior$s4m[3],
+                  s5 <- df.posterior$s5[3],
+                  s5m <- df.posterior$s5m[3],
+                  r6 <- df.posterior$r6[3],
+                  t2m <- df.posterior$t2m[3],
+                  a1 <- pa1,
+                  a3 <- pa3
+                  )
+  
+  out3 <- ode(y = ini, times = times, func = modelP, parms = parameters)
+
+```
+
+
+Plot results
+```{r}
+
+eq = function(x){(pa1*x*exp(-0.0002*x^2) + pa2*tanh(0.02*x))}
+
+if (plotOutput == 'Y')  { 
+  png(
+    filename = paste('PhosphoinositideModel_',ModelName,'_',dsname,'_',inhibitorName,'.png',sep=''),
+    width = 16,
+    height = 16,
+    units = 'cm',
+    res = 600
+  )
+}
+
+par( mfrow = c( 3, 3 ), mar=c(4,5,2.5,2) - 0.1, oma=c(2,0.15,1,0.15))#, mgp=c(2.4,1,0)) 
+
+eq = function(x){(0.03*x*exp(-0.0002*x^2) + 0.5*tanh(0.02*x))}
+
+  plot(1, type="n", 
+       xlim=c(0,end), 
+       ylim=c(0,3800000), 
+       xlab="time (seconds)", ylab="PI", cex.lab=1.4)
+if (ModelName == "A03") {
+  lines(out1[,1],out1[,2]+out1[,11], lwd = 2, type="l", col="black")
+  lines(out2[,1],out2[,2]+out2[,11], lwd = 2, type="l", lty = 2, col="grey20")
+  lines(out3[,1],out3[,2]+out3[,11], lwd = 2, type="l", lty = 2, col="grey20")
+}  else {
+  lines(out1[,1],out1[,2], lwd = 2, type="l", col="black")
+  lines(out2[,1],out2[,2], lwd = 2, type="l", lty = 2, col="grey20")
+  lines(out3[,1],out3[,2], lwd = 2, type="l", lty = 2, col="grey20")
+}
+
+#PI4
+plot(1, type="n", 
+     xlim=c(0,end), 
+     ylim=c(0,10e5), 
+     xlab="time (seconds)", ylab="PI4", cex.lab=1.4)
+lines(out1[,1],out1[,3], lwd = 2, type="l", col="black")
+lines(out2[,1],out2[,3], lwd = 2, type="l", lty = 2, col="grey20")
+lines(out3[,1],out3[,3], lwd = 2, type="l", lty = 2, col="grey20")
+
+#PIP2, Model A5 has a second variable
+plot(1, type="n", 
+     xlim=c(0,end), 
+     ylim=c(0,700000), 
+     xlab="time (seconds)", ylab="PIP2", cex.lab=1.4)
+
+if (ModelName == "A05") {
+  lines(out1[,1],out1[,4]+out1[,11], lwd = 2, type="l", lty = 2, col="black")
+  lines(out2[,1],out2[,4]+out2[,11], lwd = 2, type="l", lty = 2, col="grey20")
+  lines(out3[,1],out3[,4]+out3[,11], lwd = 2, type="l", lty = 2, col="grey20")
+} else {
+  lines(out1[,1],out1[,4], lwd = 2, type="l", lty = 2, col="black")
+  lines(out2[,1],out2[,4], lwd = 2, type="l", lty = 2, col="grey20")
+  lines(out3[,1],out3[,4], lwd = 2, type="l", lty = 2, col="grey20")
+}
+
+#PIP3, Model A4 has a second variable
+plot(1, type="n",
+     xlim=c(0,end), 
+     ylim=c(0,8000), 
+     xlab="time (seconds)", ylab="PIP3", cex.lab=1.4)
+if (ModelName == "A04") {
+  lines(out1[,1],out1[,5]+out1[,11], lwd = 2, type="l", lty = 2, col="black") 
+  lines(out2[,1],out2[,5]+out2[,11], lwd = 2, type="l", lty = 2, col="grey20") 
+  lines(out3[,1],out3[,5]+out3[,11], lwd = 2, type="l", lty = 2, col="grey20") 
+} else {
+  lines(out1[,1],out1[,5], lwd = 2, type="l", lty = 2, col="black") 
+  lines(out2[,1],out2[,5], lwd = 2, type="l", lty = 2, col="grey20") 
+  lines(out3[,1],out3[,5], lwd = 2, type="l", lty = 2, col="grey20") 
+}
+
+#PI34
+plot(1, type="n",
+     xlim=c(0,end), 
+     ylim=c(0,35000), 
+     xlab="time (seconds)", ylab="PI34", cex.lab=1.4)
+lines(out1[,1],out1[,6], lwd = 2, type="l", col="black") 
+lines(out2[,1],out2[,6], lwd = 2, type="l", lty = 2, col="grey20") 
+lines(out3[,1],out3[,6], lwd = 2, type="l", lty = 2, col="grey20") 
+
+#Pp
+plot(1, type="n",
+     xlim=c(0,end), 
+     ylim=c(0,max(out1[,7])*10.2), 
+     xlab="time (seconds)", ylab="Pp", cex.lab=1.4)
+lines(out1[,1],out1[,7], lwd = 2, type="l", col="black") 
+lines(out2[,1],out2[,7], lwd = 2, type="l", lty = 2, col="grey20") 
+lines(out3[,1],out3[,7], lwd = 2, type="l", lty = 2, col="grey20") 
+
+#IP3
+plot(1, type="n",
+     xlim=c(0,end), 
+     ylim=c(0,(max(out1[,8])*1.5)), 
+     xlab="time (seconds)", ylab="IP3", cex.lab=1.4)
+lines(out1[,1],out1[,8], lwd = 2, type="l", col="black") 
+lines(out2[,1],out2[,8], lwd = 2, type="l", lty = 2, col="grey20") 
+lines(out3[,1],out3[,8], lwd = 2, type="l", lty = 2, col="grey20") 
+
+#IP1
+plot(1, type="n",
+     xlim=c(0,end),
+     ylim=c(0,(max(out1[,9])*1.1)),
+     xlab="time (seconds)", ylab="IP1", cex.lab=1.4)
+lines(out1[,1],out1[,9], lwd = 2, type="l", col="black")
+lines(out2[,1],out2[,9], lwd = 2, type="l", lty = 2, col="grey20")
+lines(out3[,1],out3[,9], lwd = 2, type="l", lty = 2, col="grey20")
+
+#Ip
+plot(1, type="n", 
+     xlim=c(0,end), 
+     ylim=c(0,Ip0*1.1), 
+     xlab="time (seconds)", ylab="IP", cex.lab=1.4)
+lines(out1[,1],out1[,10], lwd = 2, type="l", col="black")
+lines(out2[,1],out2[,10], lwd = 2, type="l", lty = 2, col="grey20")
+lines(out3[,1],out3[,10], lwd = 2, type="l", lty = 2, col="grey20")
+
+if (plotOutput == 'Y')  { 
+  dev.off()
+}
+
+```
+
