@@ -3,7 +3,15 @@ title: "PhosphoFit, plot model simulations from best fits"
 output: html_notebook
 ---
 
-Preamble stuff
+This notebook will run a selected model producing a range of figures formatted similar to those in the associated paper.
+To save figures set the flag below (PlotOutput) to Y.
+In all cases Figures starting PhosphoModelF1, PhosphoModelF2 and PhosphoModelF3 will be saved.
+If the flag gskInhibRate < 1 then PhosphoModelF4 will be generated.
+If the pa1 != 0.001 or pa3 != 1 then the initial stimulus has been adjusted and therefore PhosphoModelF5 will be generated.
+
+#Please note, the notebook only plots the first 3 (out of 10) simulations from the 'best' parameter values. This is to save computational time. It is easy to add additional simulations
+
+Preamble stuff - set flags here
 ```{r setup}
 
 library(tidyr)
@@ -21,33 +29,60 @@ ModelName <- 'A0' #set to model A0, A01 - A10
 
 # Select inhibitor effect. none or gsk
 ######################################
-inhibitorName <- 'none' #'none' or 'gsk' 
-gskInhibRate <- 1 # 1 (no inhibitor) or 0.1
 inhibitorName <- 'gsk' #'none' or 'gsk' 
 gskInhibRate <- 0.1 # 1 (no inhibitor) or 0.1
 
 #Parameters for stimulus used in all fitting
 ############################################
-#These are for the original stimulus
+#These parameters are for the initial stimulus used in Figures 
 pa1 <- 0.001 #pa1 and pa2 determine the shape of the stim function
 pa3 <- 1
-a2 <- 0.0002
-a4 <- 0.02
 dsname <- 'Original' 
 
-#Uncomment these to run simulations with varying stimulus
+#Uncomment these to run simulations with other stimulus
 #pa1 <- 0.001
 #pa3 <- 0.5 #magnitude 50% reduced
 #dsname <- 'StimReduced' 
+
 #pa1 <- 0.03 
 #pa3 <- 0.5 #reduced magnitude with peak
 #dsname <- 'StimReducedWithPeak' 
+
 #pa1 <- 0.03 
 #pa3 <- 1 #introduce peak
 #dsname <- 'StimWithPeak' 
 
 ```
 
+Load up experimental data
+```{r}
+
+df.data <- read.csv(
+  'data/ExperimentalData.csv',
+  stringsAsFactors = FALSE,
+  header = TRUE,
+  skip=1,
+  nrow=7
+)
+
+names(df.data) <- c("time","PtdIns","PtdIns4P","PtdIns34P2","PtdIns45P2","PtdIns345P3","IP1") 
+maxPIP <- max(df.data$PtdIns4P)
+maxPIP2 <- max(df.data$PtdIns45P2)
+
+
+if (gskInhibRate < 1) {
+  df.data.inhib <- read.csv(
+    'data/ExperimentalInhibitorData.csv',
+    stringsAsFactors = FALSE,
+    header = TRUE
+  )
+}
+df.data.inhib <- df.data.inhib[,1:4]
+df.inhib.IP1 <- subset(df.data.inhib, Species == "InsP1 ([IP1])" & condition == "GSK-A1")
+df.inhib.PIP <- subset(df.data.inhib, Species == "PtdIns4P ([PI4P])" & condition == "GSK-A1")
+df.inhib.PIP2 <- subset(df.data.inhib, Species == "PtdIns(4,5)P2 ([PIP2])" & condition == "GSK-A1")
+
+```
 
 Load up outputs from fitting - to phospho data + IP3
 ```{r}
@@ -229,7 +264,7 @@ if (ModelName == 'A0') {
   modelP <- function (t, ini, parmameters) {
     with(as.list(c(ini, parameters)), {
       
-      stim <- (a1*t*exp(-a2*t^2) + a3*tanh(a4*t))
+      stim <- (a1*t*exp(-0.0002*t^2) + a3*tanh(0.02*t))
       
       # equations
       dPI=t2*Ip - r1*PI + r1m*PI4 - t3*PI + t3m*Pp
@@ -499,7 +534,7 @@ out1 <- ode(y = ini, times = times, func = modelP, parms = parameters)
 
 ```
 
-Run model twice more
+Run model twice more - you can add more runs for additional simulations
 ```{r}
 
 parameters <- c(r1 <- gskInhibRate*df.posterior$r1[2],
@@ -575,8 +610,9 @@ Plot results
 eq = function(x){(pa1*x*exp(-0.0002*x^2) + pa2*tanh(0.02*x))}
 
 if (plotOutput == 'Y')  { 
+  print("generating")
   png(
-    filename = paste('PhosphoinositideModel_',ModelName,'_',dsname,'_',inhibitorName,'.png',sep=''),
+    filename = paste('PhosphoModelF1_',ModelName,'_',dsname,'_',inhibitorName,'.png',sep=''),
     width = 16,
     height = 16,
     units = 'cm',
@@ -586,9 +622,7 @@ if (plotOutput == 'Y')  {
 
 par( mfrow = c( 3, 3 ), mar=c(4,5,2.5,2) - 0.1, oma=c(2,0.15,1,0.15))#, mgp=c(2.4,1,0)) 
 
-eq = function(x){(0.03*x*exp(-0.0002*x^2) + 0.5*tanh(0.02*x))}
-
-  plot(1, type="n", 
+plot(1, type="n", 
        xlim=c(0,end), 
        ylim=c(0,3800000), 
        xlab="time (seconds)", ylab="PI", cex.lab=1.4)
@@ -601,7 +635,8 @@ if (ModelName == "A03") {
   lines(out2[,1],out2[,2], lwd = 2, type="l", lty = 2, col="grey20")
   lines(out3[,1],out3[,2], lwd = 2, type="l", lty = 2, col="grey20")
 }
-
+lines(df.data$time, df.data$PtdIns, lwd = 2, type="b", pch = 20, lty = 2, col="red")
+  
 #PI4
 plot(1, type="n", 
      xlim=c(0,end), 
@@ -610,6 +645,7 @@ plot(1, type="n",
 lines(out1[,1],out1[,3], lwd = 2, type="l", col="black")
 lines(out2[,1],out2[,3], lwd = 2, type="l", lty = 2, col="grey20")
 lines(out3[,1],out3[,3], lwd = 2, type="l", lty = 2, col="grey20")
+lines(df.data$time, df.data$PtdIns4P, lwd = 2, type="b", pch = 20, lty = 2, col="red")
 
 #PIP2, Model A5 has a second variable
 plot(1, type="n", 
@@ -626,6 +662,7 @@ if (ModelName == "A05") {
   lines(out2[,1],out2[,4], lwd = 2, type="l", lty = 2, col="grey20")
   lines(out3[,1],out3[,4], lwd = 2, type="l", lty = 2, col="grey20")
 }
+lines(df.data$time, df.data$PtdIns45P2, lwd = 2, type="b", pch = 20, lty = 2, col="red")
 
 #PIP3, Model A4 has a second variable
 plot(1, type="n",
@@ -641,6 +678,7 @@ if (ModelName == "A04") {
   lines(out2[,1],out2[,5], lwd = 2, type="l", lty = 2, col="grey20") 
   lines(out3[,1],out3[,5], lwd = 2, type="l", lty = 2, col="grey20") 
 }
+lines(df.data$time, df.data$PtdIns345P3, lwd = 2, type="b", pch = 20, lty = 2, col="red")
 
 #PI34
 plot(1, type="n",
@@ -650,6 +688,7 @@ plot(1, type="n",
 lines(out1[,1],out1[,6], lwd = 2, type="l", col="black") 
 lines(out2[,1],out2[,6], lwd = 2, type="l", lty = 2, col="grey20") 
 lines(out3[,1],out3[,6], lwd = 2, type="l", lty = 2, col="grey20") 
+lines(df.data$time, df.data$PtdIns34P2, lwd = 2, type="b", pch = 20, lty = 2, col="red")
 
 #Pp
 plot(1, type="n",
@@ -677,6 +716,7 @@ plot(1, type="n",
 lines(out1[,1],out1[,9], lwd = 2, type="l", col="black")
 lines(out2[,1],out2[,9], lwd = 2, type="l", lty = 2, col="grey20")
 lines(out3[,1],out3[,9], lwd = 2, type="l", lty = 2, col="grey20")
+lines(df.data$time, df.data$IP1, lwd = 2, type="b", pch = 20, lty = 2, col="red")
 
 #Ip
 plot(1, type="n", 
@@ -690,6 +730,358 @@ lines(out3[,1],out3[,10], lwd = 2, type="l", lty = 2, col="grey20")
 if (plotOutput == 'Y')  { 
   dev.off()
 }
+
+```
+
+Plot results
+```{r}
+
+if (plotOutput == 'Y')  { 
+  png(
+    filename = paste('PhosphoModelF2_',ModelName,'_',dsname,'_',inhibitorName,'.png',sep=''),
+    width = 16,
+    height = 10,
+    units = 'cm',
+    res = 600
+  )
+}
+
+par( mfrow = c( 2, 3 ), mar=c(4,5,2.5,2) - 0.1, oma=c(2,0.15,1,0.15))#, mgp=c(2.4,1,0)) 
+
+#IP1
+plot(1, type="n",
+     xlim=c(0,end),
+     ylim=c(0,(max(out1[,9])*1.1)),
+     xlab="time (seconds)", ylab="IP1", cex.lab=1.4)
+lines(out1[,1],out1[,9], lwd = 2, type="l", col="black")
+lines(out2[,1],out2[,9], lwd = 2, type="l", lty = 2, col="grey20")
+lines(out3[,1],out3[,9], lwd = 2, type="l", lty = 2, col="grey20")
+lines(df.data$time, df.data$IP1, lwd = 2, type="b", pch = 20, lty = 2, col="red")
+
+
+plot(1, type="n", 
+       xlim=c(0,end), 
+       ylim=c(0,3800000), 
+       xlab="time (seconds)", ylab="PI", cex.lab=1.4)
+if (ModelName == "A03") {
+  lines(out1[,1],out1[,2]+out1[,11], lwd = 2, type="l", col="black")
+  lines(out2[,1],out2[,2]+out2[,11], lwd = 2, type="l", lty = 2, col="grey20")
+  lines(out3[,1],out3[,2]+out3[,11], lwd = 2, type="l", lty = 2, col="grey20")
+}  else {
+  lines(out1[,1],out1[,2], lwd = 2, type="l", col="black")
+  lines(out2[,1],out2[,2], lwd = 2, type="l", lty = 2, col="grey20")
+  lines(out3[,1],out3[,2], lwd = 2, type="l", lty = 2, col="grey20")
+}
+lines(df.data$time, df.data$PtdIns, lwd = 2, type="b", pch = 20, lty = 2, col="red")
+
+#PIP3, Model A4 has a second variable
+plot(1, type="n",
+     xlim=c(0,end), 
+     ylim=c(0,8000), 
+     xlab="time (seconds)", ylab="PIP3", cex.lab=1.4)
+if (ModelName == "A04") {
+  lines(out1[,1],out1[,5]+out1[,11], lwd = 2, type="l", lty = 2, col="black") 
+  lines(out2[,1],out2[,5]+out2[,11], lwd = 2, type="l", lty = 2, col="grey20") 
+  lines(out3[,1],out3[,5]+out3[,11], lwd = 2, type="l", lty = 2, col="grey20") 
+} else {
+  lines(out1[,1],out1[,5], lwd = 2, type="l", lty = 2, col="black") 
+  lines(out2[,1],out2[,5], lwd = 2, type="l", lty = 2, col="grey20") 
+  lines(out3[,1],out3[,5], lwd = 2, type="l", lty = 2, col="grey20") 
+}
+lines(df.data$time, df.data$PtdIns345P3, lwd = 2, type="b", pch = 20, lty = 2, col="red")
+
+#PI34
+plot(1, type="n",
+     xlim=c(0,end), 
+     ylim=c(0,35000), 
+     xlab="time (seconds)", ylab="PI34", cex.lab=1.4)
+lines(out1[,1],out1[,6], lwd = 2, type="l", col="black") 
+lines(out2[,1],out2[,6], lwd = 2, type="l", lty = 2, col="grey20") 
+lines(out3[,1],out3[,6], lwd = 2, type="l", lty = 2, col="grey20") 
+lines(df.data$time, df.data$PtdIns34P2, lwd = 2, type="b", pch = 20, lty = 2, col="red")
+
+#PIP2, Model A5 has a second variable
+plot(1, type="n", 
+     xlim=c(0,end), 
+     ylim=c(0,700000), 
+     xlab="time (seconds)", ylab="PIP2", cex.lab=1.4)
+
+if (ModelName == "A05") {
+  lines(out1[,1],out1[,4]+out1[,11], lwd = 2, type="l", lty = 2, col="black")
+  lines(out2[,1],out2[,4]+out2[,11], lwd = 2, type="l", lty = 2, col="grey20")
+  lines(out3[,1],out3[,4]+out3[,11], lwd = 2, type="l", lty = 2, col="grey20")
+} else {
+  lines(out1[,1],out1[,4], lwd = 2, type="l", lty = 2, col="black")
+  lines(out2[,1],out2[,4], lwd = 2, type="l", lty = 2, col="grey20")
+  lines(out3[,1],out3[,4], lwd = 2, type="l", lty = 2, col="grey20")
+}
+lines(df.data$time, df.data$PtdIns45P2, lwd = 2, type="b", pch = 20, lty = 2, col="red")
+  
+#PI4
+plot(1, type="n", 
+     xlim=c(0,end), 
+     ylim=c(0,10e5), 
+     xlab="time (seconds)", ylab="PI4", cex.lab=1.4)
+lines(out1[,1],out1[,3], lwd = 2, type="l", col="black")
+lines(out2[,1],out2[,3], lwd = 2, type="l", lty = 2, col="grey20")
+lines(out3[,1],out3[,3], lwd = 2, type="l", lty = 2, col="grey20")
+lines(df.data$time, df.data$PtdIns4P, lwd = 2, type="b", pch = 20, lty = 2, col="red")
+
+if (plotOutput == 'Y')  { 
+  dev.off()
+}
+
+if (plotOutput == 'Y')  { 
+  png(
+    filename = paste('PhosphoModelF3_',ModelName,'_',dsname,'_',inhibitorName,'.png',sep=''),
+    width = 16,
+    height = 6,
+    units = 'cm',
+    res = 600
+  )
+}
+
+par( mfrow = c( 1, 3 ), mar=c(4,5,2.5,2) - 0.1, oma=c(2,0.15,1,0.15))#, mgp=c(2.4,1,0)) 
+
+#IP3
+plot(1, type="n",
+     xlim=c(0,end), 
+     ylim=c(0,(max(out1[,8])*1.5)), 
+     xlab="time (seconds)", ylab="IP3", cex.lab=1.4)
+lines(out1[,1],out1[,8], lwd = 2, type="l", col="black") 
+lines(out2[,1],out2[,8], lwd = 2, type="l", lty = 2, col="grey20") 
+lines(out3[,1],out3[,8], lwd = 2, type="l", lty = 2, col="grey20") 
+
+#Ip
+plot(1, type="n", 
+     xlim=c(0,end), 
+     ylim=c(0,Ip0*1.1), 
+     xlab="time (seconds)", ylab="IP", cex.lab=1.4)
+lines(out1[,1],out1[,10], lwd = 2, type="l", col="black")
+lines(out2[,1],out2[,10], lwd = 2, type="l", lty = 2, col="grey20")
+lines(out3[,1],out3[,10], lwd = 2, type="l", lty = 2, col="grey20")
+
+#Pp
+plot(1, type="n",
+     xlim=c(0,end), 
+     ylim=c(0,max(out1[,7])*10.2), 
+     xlab="time (seconds)", ylab="Pp", cex.lab=1.4)
+lines(out1[,1],out1[,7], lwd = 2, type="l", col="black") 
+lines(out2[,1],out2[,7], lwd = 2, type="l", lty = 2, col="grey20") 
+lines(out3[,1],out3[,7], lwd = 2, type="l", lty = 2, col="grey20") 
+
+if (plotOutput == 'Y')  { 
+  dev.off()
+}
+
+```
+
+
+Plot results for effects of the inhibitor
+```{r}
+
+if (gskInhibRate < 1) {
+  
+  if (plotOutput == 'Y')  { 
+    png(
+      filename = paste('PhosphoModelF4_',ModelName,'_',dsname,'_',inhibitorName,'.png',sep=''),
+      width = 28,
+      height = 5,
+      units = 'cm',
+      res = 600
+    )
+  }
+  
+  par( mfrow = c( 1, 7 ), mar=c(4,5,2.5,2) - 0.1, oma=c(2,0.15,1,0.15))#, mgp=c(2.4,1,0)) 
+
+  plot(1, type="n", 
+       xlim=c(0,end), 
+       ylim=c(0,3800000), 
+       xlab="time (seconds)", ylab="PI", cex.lab=1.4)
+  if (ModelName == "A03") {
+    lines(out1[,1],out1[,2]+out1[,11], lwd = 2, type="l", col="black")
+    lines(out2[,1],out2[,2]+out2[,11], lwd = 2, type="l", lty = 2, col="grey20")
+    lines(out3[,1],out3[,2]+out3[,11], lwd = 2, type="l", lty = 2, col="grey20")
+  }  else {
+    lines(out1[,1],out1[,2], lwd = 2, type="l", col="black")
+    lines(out2[,1],out2[,2], lwd = 2, type="l", lty = 2, col="grey20")
+    lines(out3[,1],out3[,2], lwd = 2, type="l", lty = 2, col="grey20")
+  }
+  #lines(df.data$time, df.data$PtdIns, lwd = 2, type="b", pch = 20, lty = 2, col="red")
+  
+  #PI4
+  plot(1, type="n", 
+       xlim=c(0,end), 
+       ylim=c(0,1.1), 
+       xlab="time (seconds)", ylab="PI4P", cex.lab=1.4)
+  lines(out1[,1],out1[,3]/maxPIP, lwd = 2, type="l", col="black")
+  lines(out2[,1],out2[,3]/maxPIP, lwd = 2, type="l", lty = 2, col="grey20")
+  lines(out3[,1],out3[,3]/maxPIP, lwd = 2, type="l", lty = 2, col="grey20")
+  lines(df.inhib.PIP$time, df.inhib.PIP$value, lwd = 2, type="b", pch = 20, lty = 2, col="cyan")
+  
+  #PIP2, Model A5 has a second variable
+  plot(1, type="n", 
+       xlim=c(0,end), 
+       ylim=c(0,1.1), 
+       xlab="time (seconds)", ylab="PIP2", cex.lab=1.4)
+  
+  if (ModelName == "A05") {
+    lines(out1[,1],(out1[,4]+out1[,11])/maxPIP2, lwd = 2, type="l", lty = 2, col="black")
+    lines(out2[,1],(out2[,4]+out2[,11])/maxPIP2, lwd = 2, type="l", lty = 2, col="grey20")
+    lines(out3[,1],(out3[,4]+out3[,11])/maxPIP2, lwd = 2, type="l", lty = 2, col="grey20")
+  } else {
+    lines(out1[,1],(out1[,4])/maxPIP2, lwd = 2, type="l", lty = 2, col="black")
+    lines(out2[,1],(out2[,4])/maxPIP2, lwd = 2, type="l", lty = 2, col="grey20")
+    lines(out3[,1],(out3[,4])/maxPIP2, lwd = 2, type="l", lty = 2, col="grey20")
+  }
+  lines(df.inhib.PIP2$time, df.inhib.PIP2$value, lwd = 2, type="b", pch = 20, lty = 2, col="cyan")
+  
+  #PIP3, Model A4 has a second variable
+  plot(1, type="n",
+       xlim=c(0,end), 
+       ylim=c(0,8000), 
+       xlab="time (seconds)", ylab="PIP3", cex.lab=1.4)
+  if (ModelName == "A04") {
+    lines(out1[,1],out1[,5]+out1[,11], lwd = 2, type="l", lty = 2, col="black") 
+    lines(out2[,1],out2[,5]+out2[,11], lwd = 2, type="l", lty = 2, col="grey20") 
+    lines(out3[,1],out3[,5]+out3[,11], lwd = 2, type="l", lty = 2, col="grey20") 
+  } else {
+    lines(out1[,1],out1[,5], lwd = 2, type="l", lty = 2, col="black") 
+    lines(out2[,1],out2[,5], lwd = 2, type="l", lty = 2, col="grey20") 
+    lines(out3[,1],out3[,5], lwd = 2, type="l", lty = 2, col="grey20") 
+  }
+  #lines(df.data$time, df.data$PtdIns345P3, lwd = 2, type="b", pch = 20, lty = 2, col="red")
+  
+  #PI34
+  plot(1, type="n",
+       xlim=c(0,end), 
+       ylim=c(0,35000), 
+       xlab="time (seconds)", ylab="PI34", cex.lab=1.4)
+  lines(out1[,1],out1[,6], lwd = 2, type="l", col="black") 
+  lines(out2[,1],out2[,6], lwd = 2, type="l", lty = 2, col="grey20") 
+  lines(out3[,1],out3[,6], lwd = 2, type="l", lty = 2, col="grey20") 
+  #lines(df.data$time, df.data$PtdIns34P2, lwd = 2, type="b", pch = 20, lty = 2, col="red")
+  
+  #IP1
+  plot(1, type="n",
+       xlim=c(0,end),
+       ylim=c(0,(max(out1[,9])*1.1)),
+       xlab="time (seconds)", ylab="IP1", cex.lab=1.4)
+  lines(out1[,1],out1[,9], lwd = 2, type="l", col="black")
+  lines(out2[,1],out2[,9], lwd = 2, type="l", lty = 2, col="grey20")
+  lines(out3[,1],out3[,9], lwd = 2, type="l", lty = 2, col="grey20")
+  lines(df.inhib.IP1$time, df.inhib.IP1$value, lwd = 2, type="b", pch = 20, lty = 2, col="cyan")
+  
+  #IP3
+  plot(1, type="n",
+       xlim=c(0,end), 
+       ylim=c(0,(max(out1[,8])*1.5)), 
+       xlab="time (seconds)", ylab="IP3", cex.lab=1.4)
+  lines(out1[,1],out1[,8], lwd = 2, type="l", col="black") 
+  lines(out2[,1],out2[,8], lwd = 2, type="l", lty = 2, col="grey20") 
+  lines(out3[,1],out3[,8], lwd = 2, type="l", lty = 2, col="grey20") 
+  
+  if (plotOutput == 'Y')  { 
+    dev.off()
+  }
+  
+  
+}
+```
+
+
+```{r}
+
+if (pa1 != 0.001 | pa3 != 1) {
+  
+  if (plotOutput == 'Y')  { 
+    print("generating")
+    png(
+      filename = paste('PhosphoModelF5_',ModelName,'_',dsname,'_',inhibitorName,'.png',sep=''),
+      width = 24,
+      height = 6,
+      units = 'cm',
+      res = 600
+    )
+  }
+
+  par( mfrow = c( 1, 6 ), mar=c(4,5,2.5,2) - 0.1, oma=c(2,0.15,1,0.15))#, mgp=c(2.4,1,0)) 
+  
+  eq = function(x){(pa1*x*exp(-0.0002*x^2) + pa3*tanh(0.02*x))}
+
+  plot(1:end,eq(1:end), lwd = 4, type="l", col="darkorchid1", 
+       xlim=c(0,end), 
+       ylim=c(0,1.6), 
+       xlab="time (seconds)", ylab=" ", main="stimulus", cex.lab=1.1)
+  
+  #PIP2, Model A5 has a second variable
+  plot(1, type="n", 
+       xlim=c(0,end), 
+       ylim=c(0,700000), 
+       xlab="time (seconds)", ylab="PIP2", cex.lab=1.4)
+  
+  if (ModelName == "A05") {
+    lines(out1[,1],out1[,4]+out1[,11], lwd = 2, type="l", lty = 2, col="black")
+    lines(out2[,1],out2[,4]+out2[,11], lwd = 2, type="l", lty = 2, col="grey20")
+    lines(out3[,1],out3[,4]+out3[,11], lwd = 2, type="l", lty = 2, col="grey20")
+  } else {
+    lines(out1[,1],out1[,4], lwd = 2, type="l", lty = 2, col="black")
+    lines(out2[,1],out2[,4], lwd = 2, type="l", lty = 2, col="grey20")
+    lines(out3[,1],out3[,4], lwd = 2, type="l", lty = 2, col="grey20")
+  }
+  
+  
+  #PIP3, Model A4 has a second variable
+  plot(1, type="n",
+       xlim=c(0,end), 
+       ylim=c(0,8000), 
+       xlab="time (seconds)", ylab="PIP3", cex.lab=1.4)
+  if (ModelName == "A04") {
+    lines(out1[,1],out1[,5]+out1[,11], lwd = 2, type="l", lty = 2, col="black") 
+    lines(out2[,1],out2[,5]+out2[,11], lwd = 2, type="l", lty = 2, col="grey20") 
+    lines(out3[,1],out3[,5]+out3[,11], lwd = 2, type="l", lty = 2, col="grey20") 
+  } else {
+    lines(out1[,1],out1[,5], lwd = 2, type="l", lty = 2, col="black") 
+    lines(out2[,1],out2[,5], lwd = 2, type="l", lty = 2, col="grey20") 
+    lines(out3[,1],out3[,5], lwd = 2, type="l", lty = 2, col="grey20") 
+  }
+  
+  
+  #PI34
+  plot(1, type="n",
+       xlim=c(0,end), 
+       ylim=c(0,35000), 
+       xlab="time (seconds)", ylab="PI34", cex.lab=1.4)
+  lines(out1[,1],out1[,6], lwd = 2, type="l", col="black") 
+  lines(out2[,1],out2[,6], lwd = 2, type="l", lty = 2, col="grey20") 
+  lines(out3[,1],out3[,6], lwd = 2, type="l", lty = 2, col="grey20") 
+  
+  #IP3
+  plot(1, type="n",
+       xlim=c(0,end), 
+       ylim=c(0,(max(out1[,8])*1.5)), 
+       xlab="time (seconds)", ylab="IP3", cex.lab=1.4)
+  lines(out1[,1],out1[,8], lwd = 2, type="l", col="black") 
+  lines(out2[,1],out2[,8], lwd = 2, type="l", lty = 2, col="grey20") 
+  lines(out3[,1],out3[,8], lwd = 2, type="l", lty = 2, col="grey20") 
+  
+  #IP1
+  plot(1, type="n",
+       xlim=c(0,end),
+       ylim=c(0,(max(out1[,9])*1.1)),
+       xlab="time (seconds)", ylab="IP1", cex.lab=1.4)
+  lines(out1[,1],out1[,9], lwd = 2, type="l", col="black")
+  lines(out2[,1],out2[,9], lwd = 2, type="l", lty = 2, col="grey20")
+  lines(out3[,1],out3[,9], lwd = 2, type="l", lty = 2, col="grey20")
+  
+  if (plotOutput == 'Y')  { 
+    dev.off()
+  }
+  
+}
+
+
+
 
 ```
 
